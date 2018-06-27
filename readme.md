@@ -7,7 +7,7 @@ Copy ``sub.py`` into C:/ folder.
 
 The following libraries are needed: requests, bs4
 
-##How to use it
+## How to use it
 Right click any media file, navigate to sendto, click Download Subtitle and wait.
 
 ## Techniques
