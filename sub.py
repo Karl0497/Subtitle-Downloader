@@ -1,6 +1,8 @@
 import sys
-import requests, zipfile, io, os
+import requests, zipfile, io
 from bs4 import BeautifulSoup
+from threading import Thread
+import time
 class Subtitle:
     def __init__(self,tag,name):
         spans = tag.find_all("span")
@@ -13,13 +15,14 @@ class Subtitle:
         self.link = "https://subscene.com"+tag.find("a")["href"]
     def __repr__(self):
         return self.language+' '+self.title+' '+self.owner+' '+str(self.point)
-        #return self.link
+
 def getFileName(path):
     dot = path.rfind(".")
     if dot==-1: return None
     slash = path.rfind("/")
     directory = path[:slash+1]
     return directory,path[slash+1:dot]
+
 def calculatePoint(s1,s2): 
     def s(a,b):
         if a==b: return 1
@@ -36,19 +39,30 @@ def calculatePoint(s1,s2):
         for j in range(1,len(s1)+1):
             points[i][j]=max(points[i-1][j-1]+s(s2[i-1],s1[j-1]),points[i-1][j]-gap_penalty,points[i][j-1]-gap_penalty)
     return points[len(s2)][len(s1)]
-def getFullPath():
-    droppedFile = sys.argv[1]
-    droppedFile=droppedFile.replace("\\","/")
-    return droppedFile
-def getSubtitle(name):
+
+def getSubtitle(name, count=5):
     url="https://subscene.com/subtitles/release?q="+name
     result = requests.get(url).content
     soup=BeautifulSoup(result, "html5lib")
+
+    #when the following div is found, it means there is no result for the current query
+    search_result = soup.find("div",{"class":"search-result"})
+    if search_result:
+        return None
+
     table=soup.find("tbody")
-    tr_list=table.find_all("tr")
+
+    #if the table is not found, the website is blocking the script. Request again in 1 second
+    if not table:
+        time.sleep(1)
+        return getSubtitle(name,count+1)
+
+
+    tr_list=table.find_all("tr") 
     sub_list = [Subtitle(i,name) for i in tr_list]
     sub_list = [i for i in sub_list if i.language=="english"]
     return max(sub_list,key=lambda x: x.point)
+
 def downloadSubtitle(s,name,dir):
     r = requests.get(s.link).content
     soup=BeautifulSoup(r,"html5lib")
@@ -57,26 +71,35 @@ def downloadSubtitle(s,name,dir):
     zip = zipfile.ZipFile(io.BytesIO(r))
 
     #This is to rename the file
-    print("Extracting subtitle")
+    #print("Extracting subtitle")
     target_path = dir + name + ".srt"
     file= zip.read(zip.namelist()[0]) #Only extract the first file
-    print(target_path)
+    print("Done",name)
     with open(target_path,"wb") as f:
         f.write(file)
 
-def main():
-    print("Processing file")
-    path=getFullPath()
+def processPath(path):
+    
+    path=path.replace("\\","/")
     dir,fileName= getFileName(path)
+    print("Processing file:",fileName)
     if not fileName: 
         print("Invalid file")
-        return
-    
-    print("Getting subtitles")
+        return   
+    #print("Getting subtitles")
     subtitle = getSubtitle(fileName.lower())
-
-
-    print("Downloading subtitle")
+    if not subtitle:
+        print("No subtitle found")
+        return
+    #print("Downloading subtitle")
     downloadSubtitle(subtitle,fileName,dir)
+def main():
+    pool = [Thread(target=processPath,kwargs={'path':path}) for path in sys.argv[1:]]
+    for thread in pool:
+        thread.start()
+    for thread in pool:
+        thread.join()
+    input()
+   
 if __name__ == '__main__':
     main()
